@@ -7,13 +7,13 @@ permissions:
 
 on:
   push:
-    branches: [master, develop]
+    branches: [dev, master]
     paths:
       - 'environments/**'
       - 'modules/**'
       - '.github/workflows/terraform-ci.yml'
   pull_request:
-    branches: [master]
+    branches: [dev, master]
 
 jobs:
   detect-changes:
