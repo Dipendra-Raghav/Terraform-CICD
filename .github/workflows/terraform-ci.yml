@@ -1,0 +1,260 @@
+name: Terraform CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'environments/**'
+      - 'modules/**'
+      - '.github/workflows/terraform-ci.yml'
+  pull_request:
+    branches: [main]
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      non-prod: ${{ steps.filter.outputs.non-prod }}
+      prod: ${{ steps.filter.outputs.prod }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            non-prod:
+              - 'environments/non-prod/**'
+              - 'modules/**'
+            prod:
+              - 'environments/prod/**'
+              - 'modules/**'
+
+  terraform-non-prod:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.non-prod == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: environments/non-prod
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: 🔑 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+      
+      - name: 🎨 Terraform Format
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+      
+      - name: 🚀 Terraform Init
+        id: init
+        run: terraform init
+        continue-on-error: true
+      
+      - name: ✅ Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        continue-on-error: true
+      
+      - name: 📋 Terraform Plan
+        id: plan
+        run: terraform plan -out=tfplan -no-color
+        continue-on-error: true
+      
+      - name: 📦 Upload Plan
+        if: steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-non-prod
+          path: environments/non-prod/tfplan
+      
+      - name: 💬 Comment PR with Detailed Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fmt = '${{ steps.fmt.outcome }}';
+            const init = '${{ steps.init.outcome }}';
+            const validate = '${{ steps.validate.outcome }}';
+            const plan = '${{ steps.plan.outcome }}';
+            
+            const fmtIcon = fmt === 'success' ? '✅' : '❌';
+            const initIcon = init === 'success' ? '✅' : '❌';
+            const validateIcon = validate === 'success' ? '✅' : '❌';
+            const planIcon = plan === 'success' ? '✅' : plan === 'failure' ? '❌' : '⚠️';
+            
+            let output = `### 🚀 Terraform CI - Non-Prod Environment
+            
+            | Step | Status |
+            |------|--------|
+            | ${fmtIcon} Format Check | \`${fmt}\` |
+            | ${initIcon} Initialize | \`${init}\` |
+            | ${validateIcon} Validate | \`${validate}\` |
+            | ${planIcon} Plan | \`${plan}\` |
+            `;
+            
+            if (validate === 'failure') {
+              output += `\n\n### ❌ Validation Errors Found\n\n`;
+              output += `<details><summary>Show Validation Errors</summary>\n\n\`\`\`\nValidation failed. Check Actions logs for details.\n\`\`\`\n\n</details>`;
+            }
+            
+            if (plan === 'success') {
+              output += `\n\n### ✅ Plan Generated Successfully\n\n`;
+              output += `<details><summary>Show Terraform Plan</summary>\n\n\`\`\`terraform\nPlan artifact uploaded. Review in Actions artifacts.\n\`\`\`\n\n</details>`;
+            } else if (plan === 'failure') {
+              output += `\n\n### ❌ Plan Failed\n\nCheck validation errors or Actions logs.`;
+            }
+            
+            output += `\n\n---\n📊 **Build**: [View Full Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+      
+      - name: ❌ Fail Pipeline if Validation Failed
+        if: steps.validate.outcome == 'failure'
+        run: |
+          echo "::error::Terraform validation failed. Please fix syntax errors."
+          exit 1
+
+  terraform-prod:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.prod == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: environments/prod
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: 🔑 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+      
+      - name: 🎨 Terraform Format
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+      
+      - name: 🚀 Terraform Init
+        id: init
+        run: terraform init
+        continue-on-error: true
+      
+      - name: ✅ Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        continue-on-error: true
+      
+      - name: 📋 Terraform Plan
+        id: plan
+        run: terraform plan -out=tfplan -no-color
+        continue-on-error: true
+      
+      - name: 📦 Upload Plan
+        if: steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-prod
+          path: environments/prod/tfplan
+      
+      - name: 💬 Comment PR with Detailed Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fmt = '${{ steps.fmt.outcome }}';
+            const init = '${{ steps.init.outcome }}';
+            const validate = '${{ steps.validate.outcome }}';
+            const plan = '${{ steps.plan.outcome }}';
+            
+            const fmtIcon = fmt === 'success' ? '✅' : '❌';
+            const initIcon = init === 'success' ? '✅' : '❌';
+            const validateIcon = validate === 'success' ? '✅' : '❌';
+            const planIcon = plan === 'success' ? '✅' : plan === 'failure' ? '❌' : '⚠️';
+            
+            let output = `### 🏢 Terraform CI - Production Environment
+            
+            | Step | Status |
+            |------|--------|
+            | ${fmtIcon} Format Check | \`${fmt}\` |
+            | ${initIcon} Initialize | \`${init}\` |
+            | ${validateIcon} Validate | \`${validate}\` |
+            | ${planIcon} Plan | \`${plan}\` |
+            `;
+            
+            if (validate === 'failure') {
+              output += `\n\n### ❌ Validation Errors Found\n\n`;
+              output += `<details><summary>Show Validation Errors</summary>\n\n\`\`\`\nValidation failed. Check Actions logs for details.\n\`\`\`\n\n</details>`;
+            }
+            
+            if (plan === 'success') {
+              output += `\n\n### ✅ Plan Generated Successfully\n\n`;
+              output += `<details><summary>Show Terraform Plan</summary>\n\n\`\`\`terraform\nPlan artifact uploaded. Review in Actions artifacts.\n\`\`\`\n\n</details>`;
+              output += `\n\n⚠️ **Production deployment requires manual approval**`;
+            } else if (plan === 'failure') {
+              output += `\n\n### ❌ Plan Failed\n\nCheck validation errors or Actions logs.`;
+            }
+            
+            output += `\n\n---\n📊 **Build**: [View Full Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+      
+      - name: ❌ Fail Pipeline if Validation Failed
+        if: steps.validate.outcome == 'failure'
+        run: |
+          echo "::error::Terraform validation failed. Please fix syntax errors."
+          exit 1
+            const output = `### Terraform Plan - Prod 🏢
+            
+            #### Format: \`${{ steps.fmt.outcome }}\`
+            #### Init: \`${{ steps.init.outcome }}\`
+            #### Validate: \`${{ steps.validate.outcome }}\`
+            #### Plan: \`${{ steps.plan.outcome }}\`
+            
+            <details><summary>Show Plan</summary>
+            
+            \`\`\`
+            Plan created successfully
+            \`\`\`
+            
+            </details>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
