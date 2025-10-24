@@ -1,18 +1,13 @@
-# Get latest Amazon Linux 2 AMI
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
-  }
+# Static AMI ID for POC demo (no AWS API call needed)
+# Using Amazon Linux 2 AMI ID for us-east-1
+locals {
+  ami_id = "ami-0c55b159cbfafe1f0" # Amazon Linux 2 in us-east-1 (static for POC)
 }
 
 # EC2 Instances
 resource "aws_instance" "main" {
   count                  = var.instance_count
-  ami                    = data.aws_ami.amazon_linux.id
+  ami                    = local.ami_id
   instance_type          = var.instance_type
   subnet_id              = var.subnet_ids[count.index % length(var.subnet_ids)]
   vpc_security_group_ids = [var.security_group_id]
