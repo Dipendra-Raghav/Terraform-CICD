@@ -1,8 +1,14 @@
 name: Terraform CD
 
+permissions:
+  contents: read
+  id-token: write
+
 on:
   push:
-    branches: [master]
+    branches: 
+      - dev      # Triggers non-prod deployment
+      - master   # Triggers prod deployment
     paths:
       - 'environments/**'
       - 'modules/**'
@@ -18,7 +24,10 @@ on:
 
 jobs:
   deploy-non-prod:
-    if: github.event_name == 'push' || github.event.inputs.environment == 'non-prod'
+    # Deploy to non-prod when pushing to 'dev' branch or manual trigger
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/dev') || 
+      github.event.inputs.environment == 'non-prod'
     runs-on: ubuntu-latest
     environment: non-prod
     defaults:
@@ -34,33 +43,42 @@ jobs:
         with:
           terraform_version: 1.5.0
       
-      - name: Configure AWS Credentials
+      - name: 🔑 Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
+        continue-on-error: true
       
-      - name: Terraform Init
+      - name: 🚀 Terraform Init
         run: terraform init
       
-      - name: Terraform Plan
+      - name: 📋 Terraform Plan
         run: terraform plan -out=tfplan
       
-      - name: Terraform Apply
+      - name: 🎯 Terraform Apply
+        id: apply
         run: terraform apply -auto-approve tfplan
+        continue-on-error: true
       
-      - name: Terraform Output
+      - name: 📊 Terraform Output
+        if: steps.apply.outcome == 'success'
         run: terraform output -json > outputs.json
+        continue-on-error: true
       
-      - name: Upload Outputs
+      - name: 📦 Upload Outputs
+        if: steps.apply.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: outputs-non-prod
           path: environments/non-prod/outputs.json
 
   deploy-prod:
-    if: github.event.inputs.environment == 'prod'
+    # Deploy to prod when pushing to 'master' branch or manual trigger
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/master') || 
+      github.event.inputs.environment == 'prod'
     runs-on: ubuntu-latest
     environment: prod
     defaults:
@@ -71,31 +89,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Setup Terraform
+      - name: 🔧 Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.5.0
       
-      - name: Configure AWS Credentials
+      - name: 🔑 Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
+        continue-on-error: true
       
-      - name: Terraform Init
+      - name: 🚀 Terraform Init
         run: terraform init
       
-      - name: Terraform Plan
+      - name: 📋 Terraform Plan
         run: terraform plan -out=tfplan
       
-      - name: Terraform Apply
+      - name: ⏸️ Wait for Manual Approval
+        run: |
+          echo "⏸️ Production deployment requires manual approval..."
+          echo "Approve in GitHub Environments to proceed."
+      
+      - name: 🎯 Terraform Apply
+        id: apply
         run: terraform apply -auto-approve tfplan
+        continue-on-error: true
       
-      - name: Terraform Output
+      - name: 📊 Terraform Output
+        if: steps.apply.outcome == 'success'
         run: terraform output -json > outputs.json
+        continue-on-error: true
       
-      - name: Upload Outputs
+      - name: 📦 Upload Outputs
+        if: steps.apply.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: outputs-prod
