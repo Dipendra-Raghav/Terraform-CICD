@@ -11,4 +11,4 @@ availability_zones   = ["us-east-1a", "us-east-1b"]
 
 # EC2 Configuration
 instance_type  = "t3.micro"
-instance_count = 1 # Testing CI/CD pipeline - dec from 4 to 1
+instance_count = 5 # Testing CI/CD pipeline - dec from 4 to 1
